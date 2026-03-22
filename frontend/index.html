@@ -1,0 +1,1225 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SANITIZE // 图像脱敏系统</title>
+<style>
+/* ── Tab nav ── */
+.tab-nav {
+  display: flex;
+  border-bottom: 1px solid var(--border-bright);
+  background: var(--bg);
+  padding: 0 2rem;
+}
+.tab-btn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  transition: all 0.15s;
+  margin-bottom: -1px;
+}
+.tab-btn:hover { color: var(--text); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Analyze panel ── */
+.analyze-panel {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: calc(100vh - 56px - 40px);
+}
+.an-col { padding: 1.5rem; }
+.an-controls { border-right: 1px solid var(--border); }
+.an-drop { min-height: 120px; margin: 0; cursor: pointer; }
+.an-results {
+  overflow-y: auto;
+}
+.an-placeholder {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+/* ── Report cards ── */
+.report-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  margin-bottom: 1rem;
+}
+.report-card {
+  background: var(--surface);
+  padding: 1rem;
+}
+.card-title {
+  font-family: var(--sans);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+}
+.card-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.72rem;
+}
+.card-metric:last-child { border-bottom: none; }
+.metric-label { color: var(--text-dim); }
+.metric-val { font-family: var(--mono); }
+.val-ok  { color: var(--ok); }
+.val-warn { color: var(--warn); }
+.val-info { color: var(--accent); }
+
+.verdict-bar {
+  border: 1px solid var(--border-bright);
+  background: var(--surface);
+  padding: 1.25rem;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  margin-bottom: 1rem;
+}
+.verdict-grade {
+  font-family: var(--sans);
+  font-size: 2.5rem;
+  font-weight: 900;
+  letter-spacing: 0.1em;
+  flex-shrink: 0;
+}
+.grade-pass    { color: var(--ok); }
+.grade-partial { color: var(--warn); }
+.grade-fail    { color: #ff3333; }
+.verdict-detail { font-size: 0.72rem; line-height: 1.8; }
+.verdict-title {
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  margin-bottom: 0.25rem;
+}
+
+.check-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.72rem;
+  padding: 0.2rem 0;
+}
+.check-icon { width: 14px; text-align: center; flex-shrink: 0; }
+
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Barlow+Condensed:wght@300;400;600;700;900&display=swap');
+
+:root {
+  --bg: #0a0b0d;
+  --surface: #111318;
+  --border: #1e2330;
+  --border-bright: #2d3448;
+  --accent: #00e5ff;
+  --accent-dim: #004d5a;
+  --warn: #ff6b35;
+  --ok: #39ff14;
+  --text: #c8d0e0;
+  --text-dim: #4a5468;
+  --mono: 'Share Tech Mono', monospace;
+  --sans: 'Barlow Condensed', sans-serif;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Scanline overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.03) 2px,
+    rgba(0,0,0,0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+header {
+  border-bottom: 1px solid var(--border-bright);
+  padding: 0 2rem;
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  height: 56px;
+  position: sticky;
+  top: 0;
+  background: var(--bg);
+  z-index: 100;
+}
+
+.logo {
+  font-family: var(--sans);
+  font-weight: 900;
+  font-size: 1.4rem;
+  letter-spacing: 0.15em;
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.logo span { color: var(--text-dim); }
+
+.status-bar {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  letter-spacing: 0.05em;
+}
+
+.status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  box-shadow: 0 0 6px var(--ok);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.main {
+  display: grid;
+  grid-template-columns: 340px 1fr;
+  min-height: calc(100vh - 56px);
+}
+
+/* LEFT PANEL - Controls */
+.controls {
+  border-right: 1px solid var(--border);
+  padding: 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow-y: auto;
+}
+
+.section-label {
+  font-family: var(--sans);
+  font-size: 0.65rem;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  padding: 1rem 0 0.5rem;
+  border-top: 1px solid var(--border);
+  margin-top: 1rem;
+}
+
+.section-label:first-child { border-top: none; margin-top: 0; padding-top: 0; }
+
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.toggle-row:hover .toggle-label { color: var(--accent); }
+
+.toggle-label {
+  font-size: 0.78rem;
+  color: var(--text);
+  transition: color 0.15s;
+}
+
+.toggle-sub {
+  font-size: 0.65rem;
+  color: var(--text-dim);
+  margin-top: 2px;
+}
+
+.toggle {
+  width: 36px; height: 18px;
+  background: var(--border-bright);
+  border-radius: 2px;
+  position: relative;
+  transition: background 0.2s;
+  flex-shrink: 0;
+}
+
+.toggle.on { background: var(--accent-dim); border: 1px solid var(--accent); }
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  width: 14px; height: 14px;
+  top: 2px; left: 2px;
+  background: var(--text-dim);
+  border-radius: 1px;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.toggle.on::after {
+  transform: translateX(18px);
+  background: var(--accent);
+}
+
+.slider-group {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.75rem;
+  margin-bottom: 0.4rem;
+}
+
+.slider-val {
+  color: var(--accent);
+  font-size: 0.75rem;
+}
+
+input[type=range] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 3px;
+  background: var(--border-bright);
+  outline: none;
+  cursor: pointer;
+}
+
+input[type=range]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 14px; height: 14px;
+  background: var(--accent);
+  border-radius: 1px;
+  cursor: pointer;
+  box-shadow: 0 0 8px var(--accent);
+}
+
+.select-group {
+  padding: 0.6rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.select-group label {
+  font-size: 0.75rem;
+  color: var(--text);
+  display: block;
+  margin-bottom: 0.4rem;
+}
+
+select {
+  width: 100%;
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  color: var(--text);
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  padding: 0.4rem 0.6rem;
+  outline: none;
+  cursor: pointer;
+  border-radius: 2px;
+}
+
+select:focus { border-color: var(--accent); }
+
+.run-btn {
+  margin-top: auto;
+  padding-top: 1.5rem;
+}
+
+button.primary {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  padding: 0.9rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+button.primary::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--accent);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.2s;
+  z-index: 0;
+}
+
+button.primary:hover::before { transform: scaleX(1); }
+button.primary:hover { color: var(--bg); }
+button.primary span { position: relative; z-index: 1; }
+
+button.primary:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+button.primary:disabled::before { display: none; }
+
+/* RIGHT PANEL - Workspace */
+.workspace {
+  display: flex;
+  flex-direction: column;
+}
+
+.drop-zone {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 1px dashed var(--border-bright);
+  margin: 2rem;
+  cursor: pointer;
+  position: relative;
+  min-height: 320px;
+  transition: border-color 0.2s;
+}
+
+.drop-zone:hover, .drop-zone.drag-over {
+  border-color: var(--accent);
+}
+
+.drop-zone.drag-over::after {
+  content: 'DROP IT';
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 229, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--sans);
+  font-size: 3rem;
+  font-weight: 900;
+  letter-spacing: 0.3em;
+  color: var(--accent);
+}
+
+.drop-icon {
+  font-size: 3rem;
+  margin-bottom: 1rem;
+  opacity: 0.3;
+}
+
+.drop-text {
+  font-family: var(--sans);
+  font-size: 1.1rem;
+  letter-spacing: 0.1em;
+  color: var(--text-dim);
+}
+
+.drop-sub {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  margin-top: 0.5rem;
+  letter-spacing: 0.05em;
+}
+
+input[type=file] { display: none; }
+
+/* Preview area */
+.preview-area {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px;
+  background: var(--border);
+  margin: 0 2rem 2rem;
+  border: 1px solid var(--border);
+  display: none;
+}
+
+.preview-area.visible { display: grid; }
+
+.preview-pane {
+  background: var(--surface);
+  padding: 1rem;
+}
+
+.pane-label {
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  margin-bottom: 0.75rem;
+  font-family: var(--sans);
+  font-weight: 600;
+}
+
+.preview-img {
+  width: 100%;
+  max-height: 280px;
+  object-fit: contain;
+  display: block;
+  background: repeating-conic-gradient(#1a1a1a 0% 25%, #222 0% 50%) 0 0 / 12px 12px;
+}
+
+/* Log output */
+.log-panel {
+  margin: 0 2rem 2rem;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  display: none;
+}
+
+.log-panel.visible { display: block; }
+
+.log-header {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.65rem;
+  letter-spacing: 0.2em;
+  color: var(--text-dim);
+  font-family: var(--sans);
+  font-weight: 600;
+  text-transform: uppercase;
+  display: flex;
+  justify-content: space-between;
+}
+
+.log-body {
+  padding: 0.75rem;
+  font-size: 0.72rem;
+  line-height: 1.8;
+  max-height: 120px;
+  overflow-y: auto;
+}
+
+.log-line { display: flex; gap: 0.75rem; }
+.log-time { color: var(--text-dim); flex-shrink: 0; }
+.log-ok { color: var(--ok); }
+.log-warn { color: var(--warn); }
+.log-info { color: var(--accent); }
+
+/* Download button */
+.dl-btn {
+  display: none;
+  margin: 0 2rem 2rem;
+}
+
+.dl-btn.visible { display: block; }
+
+button.secondary {
+  width: 100%;
+  background: var(--ok);
+  border: none;
+  color: var(--bg);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.15em;
+  padding: 0.9rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: opacity 0.15s;
+}
+
+button.secondary:hover { opacity: 0.85; }
+
+/* Progress bar */
+.progress-wrap {
+  margin: 0 2rem;
+  height: 3px;
+  background: var(--border);
+  display: none;
+  overflow: hidden;
+}
+
+.progress-wrap.visible { display: block; }
+
+.progress-bar {
+  height: 100%;
+  background: var(--accent);
+  box-shadow: 0 0 8px var(--accent);
+  width: 0%;
+  transition: width 0.3s;
+}
+
+.progress-bar.indeterminate {
+  width: 40%;
+  animation: slide 1.2s ease-in-out infinite;
+}
+
+@keyframes slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
+}
+
+/* File info badge */
+.file-badge {
+  display: none;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 2rem 1rem;
+  padding: 0.6rem 0.75rem;
+  background: var(--surface);
+  border: 1px solid var(--border-bright);
+  font-size: 0.72rem;
+}
+
+.file-badge.visible { display: flex; }
+
+.badge-name { color: var(--accent); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.badge-size { color: var(--text-dim); flex-shrink: 0; }
+
+.clear-btn {
+  background: none;
+  border: none;
+  color: var(--warn);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 0;
+}
+
+
+.max-btn {
+  margin-top: 0.75rem;
+}
+
+button.max {
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--warn);
+  color: var(--warn);
+  font-family: var(--sans);
+  font-weight: 700;
+  font-size: 1rem;
+  letter-spacing: 0.2em;
+  padding: 0.9rem;
+  cursor: pointer;
+  text-transform: uppercase;
+  transition: all 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+button.max::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--warn);
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform 0.2s;
+  z-index: 0;
+}
+button.max:hover::before { transform: scaleX(1); }
+button.max:hover { color: var(--bg); }
+button.max span { position: relative; z-index: 1; }
+button.max:disabled { opacity: 0.3; cursor: not-allowed; }
+button.max:disabled::before { display: none; }
+
+.mode-badge {
+  display: inline-block;
+  font-size: 0.6rem;
+  letter-spacing: 0.15em;
+  padding: 0.15rem 0.4rem;
+  border-radius: 1px;
+  margin-left: 0.5rem;
+  vertical-align: middle;
+}
+.badge-max { background: var(--warn); color: var(--bg); }
+.badge-std { background: var(--accent-dim); color: var(--accent); border: 1px solid var(--accent); }
+
+@media (max-width: 768px) {
+  .main { grid-template-columns: 1fr; }
+  .controls { border-right: none; border-bottom: 1px solid var(--border); }
+  .preview-area { grid-template-columns: 1fr; }
+}
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">SANITIZE<span> // 图像脱敏</span></div>
+  <div class="status-bar">
+    <div style="display:flex;align-items:center;gap:0.5rem">
+      <div class="status-dot" id="apiDot"></div>
+      <span id="apiStatus">连接中...</span>
+    </div>
+    <span id="clockEl"></span>
+  </div>
+</header>
+
+<nav class="tab-nav">
+  <button class="tab-btn active" onclick="switchTab('sanitize', this)">
+    <span>// SANITIZE</span>
+  </button>
+  <button class="tab-btn" onclick="switchTab('analyze', this)">
+    <span>// ANALYZE</span>
+  </button>
+</nav>
+
+<div id="tab-sanitize" class="main">
+
+  <!-- Controls Panel -->
+  <div class="controls">
+
+    <div class="section-label">EXIF / 元数据</div>
+
+    <div class="toggle-row" onclick="toggleOption('strip_exif')">
+      <div>
+        <div class="toggle-label">清除 EXIF 元数据</div>
+        <div class="toggle-sub">GPS、设备、时间戳等</div>
+      </div>
+      <div class="toggle on" id="tog-strip_exif"></div>
+    </div>
+
+    <div class="toggle-row" onclick="toggleOption('strip_png_chunks')">
+      <div>
+        <div class="toggle-label">清除 PNG 元数据块</div>
+        <div class="toggle-sub">tEXt、zTXt、iTXt、eXIf</div>
+      </div>
+      <div class="toggle on" id="tog-strip_png_chunks"></div>
+    </div>
+
+    <div class="section-label">隐写术对抗</div>
+
+    <div class="toggle-row" onclick="toggleOption('noise')">
+      <div>
+        <div class="toggle-label">高斯噪声注入</div>
+        <div class="toggle-sub">破坏 LSB 隐写水印</div>
+      </div>
+      <div class="toggle on" id="tog-noise"></div>
+    </div>
+
+    <div class="slider-group" id="grp-noise_strength">
+      <div class="slider-header">
+        <span>噪声强度 σ</span>
+        <span class="slider-val" id="val-noise_strength">1.5</span>
+      </div>
+      <input type="range" min="0.5" max="5" step="0.1" value="1.5"
+        oninput="updateSlider('noise_strength', this.value)">
+    </div>
+
+    <div class="toggle-row" onclick="toggleOption('resample')">
+      <div>
+        <div class="toggle-label">重采样攻击</div>
+        <div class="toggle-sub">缩小再放大，破坏像素级水印</div>
+      </div>
+      <div class="toggle on" id="tog-resample"></div>
+    </div>
+
+    <div class="slider-group" id="grp-resample_scale">
+      <div class="slider-header">
+        <span>采样比例</span>
+        <span class="slider-val" id="val-resample_scale">75%</span>
+      </div>
+      <input type="range" min="0.5" max="0.95" step="0.05" value="0.75"
+        oninput="updateSlider('resample_scale', this.value)">
+    </div>
+
+    <div class="toggle-row" onclick="toggleOption('jpeg_recompress')">
+      <div>
+        <div class="toggle-label">JPEG 重压缩</div>
+        <div class="toggle-sub">破坏 DCT 域隐写水印</div>
+      </div>
+      <div class="toggle on" id="tog-jpeg_recompress"></div>
+    </div>
+
+    <div class="slider-group" id="grp-jpeg_quality">
+      <div class="slider-header">
+        <span>JPEG 质量</span>
+        <span class="slider-val" id="val-jpeg_quality">82</span>
+      </div>
+      <input type="range" min="60" max="95" step="1" value="82"
+        oninput="updateSlider('jpeg_quality', this.value)">
+    </div>
+
+    
+    <div class="section-label">ADVANCED // Journalist Mode</div>
+
+    <div class="toggle-row" onclick="toggleOption('prnu_attack')">
+      <div>
+        <div class="toggle-label">PRNU sensor fingerprint attack</div>
+        <div class="toggle-sub">3-pass rotation + noise, destroys camera ID</div>
+      </div>
+      <div class="toggle" id="tog-prnu_attack"></div>
+    </div>
+
+    <div class="toggle-row" onclick="toggleOption('geometric')">
+      <div>
+        <div class="toggle-label">Geometric distortion</div>
+        <div class="toggle-sub">Edge crop + row shift, breaks robust watermarks</div>
+      </div>
+      <div class="toggle" id="tog-geometric"></div>
+    </div>
+
+    <div class="toggle-row" onclick="toggleOption('lsb_destroy')">
+      <div>
+        <div class="toggle-label">LSB bit destruction</div>
+        <div class="toggle-sub">Zero + rerandomise bottom 2 bits</div>
+      </div>
+      <div class="toggle" id="tog-lsb_destroy"></div>
+    </div>
+
+<div class="section-label">输出格式</div>
+
+    <div class="select-group">
+      <label>输出格式</label>
+      <select id="output_format">
+        <option value="png">PNG（无损，推荐）</option>
+        <option value="jpeg">JPEG（高压缩）</option>
+        <option value="webp">WebP（现代格式）</option>
+      </select>
+    </div>
+
+    <div class="run-btn">
+      <button class="primary" id="runBtn" onclick="runSanitize()" disabled>
+        <span>▶ 执行脱敏</span>
+      </button>
+    </div>
+
+    <div class="max-btn">
+      <button class="max" id="maxBtn" onclick="runMax()" disabled>
+        <span>&#9889; MAX SANITIZE</span>
+      </button>
+    </div>
+    <div style="padding: 0.5rem 0; font-size: 0.65rem; color: var(--text-dim); line-height: 1.6;">
+      MAX mode: EXIF + PNG chunks + PRNU (3-pass) + LSB destroy + Geometric + Resample 70% + Double JPEG
+    </div>
+
+  </div>
+
+  <!-- Workspace -->
+  <div class="workspace">
+
+    <!-- Drop Zone -->
+    <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()"
+      ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <div class="drop-icon">⬡</div>
+      <div class="drop-text">拖拽图片到此处，或点击选择</div>
+      <div class="drop-sub">支持 JPG · PNG · WebP · GIF · BMP · 最大 20MB</div>
+    </div>
+    <input type="file" id="fileInput" accept="image/*" onchange="handleFileSelect(this.files[0])">
+
+    <!-- File Badge -->
+    <div class="file-badge" id="fileBadge">
+      <span class="badge-name" id="badgeName"></span>
+      <span class="badge-size" id="badgeSize"></span>
+      <button class="clear-btn" onclick="clearFile()">✕ 清除</button>
+    </div>
+
+    <!-- Progress -->
+    <div class="progress-wrap" id="progressWrap">
+      <div class="progress-bar indeterminate" id="progressBar"></div>
+    </div>
+
+    <!-- Preview -->
+    <div class="preview-area" id="previewArea">
+      <div class="preview-pane">
+        <div class="pane-label">// 原始输入</div>
+        <img class="preview-img" id="previewBefore" alt="before">
+      </div>
+      <div class="preview-pane">
+        <div class="pane-label">// 脱敏输出</div>
+        <img class="preview-img" id="previewAfter" alt="after">
+      </div>
+    </div>
+
+    <!-- Log -->
+    <div class="log-panel" id="logPanel">
+      <div class="log-header">
+        <span>// 执行日志</span>
+        <span id="logCount">0 步骤</span>
+      </div>
+      <div class="log-body" id="logBody"></div>
+    </div>
+
+    <!-- Download -->
+    <div class="dl-btn" id="dlBtn">
+      <button class="secondary" id="downloadBtn">⬇ 下载脱敏图片</button>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const API = '/api';  // proxied via nginx
+
+const state = {
+  file: null,
+  outputBlob: null,
+  options: {
+    strip_exif: true,
+    strip_png_chunks: true,
+    noise: true,
+    noise_strength: 1.5,
+    resample: true,
+    resample_scale: 0.75,
+    jpeg_recompress: true,
+    jpeg_quality: 82,
+  }
+};
+
+// Clock
+function updateClock() {
+  document.getElementById('clockEl').textContent = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// API health check
+async function checkApi() {
+  try {
+    const r = await fetch(`${API}/health`);
+    if (r.ok) {
+      document.getElementById('apiStatus').textContent = 'SYS:ONLINE';
+      document.getElementById('apiDot').style.background = 'var(--ok)';
+      document.getElementById('apiDot').style.boxShadow = '0 0 6px var(--ok)';
+    } else throw new Error();
+  } catch {
+    document.getElementById('apiStatus').textContent = 'SYS:OFFLINE';
+    document.getElementById('apiDot').style.background = 'var(--warn)';
+    document.getElementById('apiDot').style.boxShadow = '0 0 6px var(--warn)';
+  }
+}
+checkApi();
+setInterval(checkApi, 10000);
+
+// Toggles
+function toggleOption(key) {
+  state.options[key] = !state.options[key];
+  const el = document.getElementById(`tog-${key}`);
+  el.classList.toggle('on', state.options[key]);
+}
+
+function updateSlider(key, val) {
+  val = parseFloat(val);
+  state.options[key] = val;
+  const disp = document.getElementById(`val-${key}`);
+  if (key === 'resample_scale') disp.textContent = Math.round(val * 100) + '%';
+  else if (key === 'noise_strength') disp.textContent = val.toFixed(1);
+  else disp.textContent = val;
+}
+
+// File handling
+function handleFileSelect(file) {
+  if (!file) return;
+  if (file.size > 20 * 1024 * 1024) { addLog('文件超过 20MB 限制', 'warn'); return; }
+  state.file = file;
+  state.outputBlob = null;
+
+  document.getElementById('badgeName').textContent = file.name;
+  document.getElementById('badgeSize').textContent = formatSize(file.size);
+  document.getElementById('fileBadge').classList.add('visible');
+  document.getElementById('dropZone').style.display = 'none';
+
+  const reader = new FileReader();
+  reader.onload = e => {
+    document.getElementById('previewBefore').src = e.target.result;
+    document.getElementById('previewAfter').src = '';
+    document.getElementById('previewArea').classList.add('visible');
+  };
+  reader.readAsDataURL(file);
+
+  document.getElementById('runBtn').disabled = false;
+  document.getElementById('maxBtn').disabled = false;
+  document.getElementById('dlBtn').classList.remove('visible');
+  document.getElementById('logPanel').classList.remove('visible');
+  document.getElementById('logBody').innerHTML = '';
+}
+
+function clearFile() {
+  state.file = null;
+  state.outputBlob = null;
+  document.getElementById('fileBadge').classList.remove('visible');
+  document.getElementById('dropZone').style.display = '';
+  document.getElementById('previewArea').classList.remove('visible');
+  document.getElementById('dlBtn').classList.remove('visible');
+  document.getElementById('logPanel').classList.remove('visible');
+  document.getElementById('runBtn').disabled = true;
+  document.getElementById('maxBtn').disabled = true;
+  document.getElementById('fileInput').value = '';
+  document.getElementById('progressWrap').classList.remove('visible');
+}
+
+function handleDragOver(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.add('drag-over');
+}
+function handleDragLeave() {
+  document.getElementById('dropZone').classList.remove('drag-over');
+}
+function handleDrop(e) {
+  e.preventDefault();
+  document.getElementById('dropZone').classList.remove('drag-over');
+  const f = e.dataTransfer.files[0];
+  if (f) handleFileSelect(f);
+}
+
+// Run
+async function runSanitize() {
+  if (!state.file) return;
+
+  const btn = document.getElementById('runBtn');
+  btn.disabled = true;
+  document.getElementById('progressWrap').classList.add('visible');
+  document.getElementById('dlBtn').classList.remove('visible');
+  document.getElementById('logBody').innerHTML = '';
+  document.getElementById('logPanel').classList.add('visible');
+  document.getElementById('logCount').textContent = '处理中...';
+
+  const fmt = document.getElementById('output_format').value;
+
+  const fd = new FormData();
+  fd.append('file', state.file);
+  fd.append('mode', 'custom');
+  fd.append('output_format', fmt);
+  for (const [k, v] of Object.entries(state.options)) {
+    fd.append(k, String(v));
+  }
+
+  addLog(`目标文件: ${state.file.name} (${formatSize(state.file.size)})`, 'info');
+  addLog('启动脱敏管线...', 'info');
+
+  try {
+    const resp = await fetch(`${API}/sanitize`, { method: 'POST', body: fd });
+
+    if (!resp.ok) {
+      // Error responses are JSON
+      try {
+        const err = await resp.json();
+        addLog(`错误: ${err.error || resp.statusText}`, 'warn');
+      } catch {
+        addLog(`错误: HTTP ${resp.status} ${resp.statusText}`, 'warn');
+      }
+      document.getElementById('logCount').textContent = '失败';
+      return;
+    }
+
+    // Check content-type — must be an image
+    const ct = resp.headers.get('Content-Type') || '';
+    if (!ct.startsWith('image/')) {
+      // Unexpected — try to read as text for debugging
+      const body = await resp.text();
+      addLog(`后端返回非图片响应 (${ct}): ${body.slice(0, 120)}`, 'warn');
+      document.getElementById('logCount').textContent = '失败';
+      return;
+    }
+
+    const steps = decodeURIComponent(resp.headers.get('X-Steps-Done') || '');
+    const count = resp.headers.get('X-Steps-Count') || '?';
+
+    const stepLabels = {
+      'EXIF strip': 'EXIF 元数据清除',
+      'PNG chunk strip': 'PNG 元数据块清除',
+      'JPEG recompress': 'JPEG 重压缩',
+    };
+    if (steps) {
+      steps.split(',').forEach(s => {
+        const key = s.trim();
+        if (!key) return;
+        // Translate known keys, pass through anything with numbers (has params)
+        const base = key.replace(/ \(.*\)$/, '');
+        const params = key.match(/\(.*\)$/)?.[0] || '';
+        const label = (stepLabels[base] || base) + (params ? ' ' + params : '');
+        addLog(label, 'ok');
+      });
+    } else {
+      addLog('脱敏处理完成', 'ok');
+    }
+
+    const blob = await resp.blob();
+    state.outputBlob = blob;
+
+    const url = URL.createObjectURL(blob);
+    document.getElementById('previewAfter').src = url;
+
+    const outSize = formatSize(blob.size);
+    const reduction = (((state.file.size - blob.size) / state.file.size) * 100).toFixed(1);
+    addLog(`输出大小: ${outSize}（${Number(reduction) > 0 ? '-' : '+'}${Math.abs(Number(reduction))}%）`, 'info');
+
+    document.getElementById('logCount').textContent = `${count} 步骤完成`;
+    document.getElementById('dlBtn').classList.add('visible');
+
+    document.getElementById('downloadBtn').onclick = () => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `sanitized_${Date.now()}.${fmt}`;
+      a.click();
+    };
+
+  } catch (e) {
+    addLog(`网络错误: ${e.message}`, 'warn');
+    document.getElementById('logCount').textContent = '失败';
+  } finally {
+    btn.disabled = false;
+    document.getElementById('progressWrap').classList.remove('visible');
+  }
+}
+
+
+async function runMax() {
+  if (!state.file) return;
+
+  const btn = document.getElementById('maxBtn');
+  const runBtn = document.getElementById('runBtn');
+  btn.disabled = true;
+  runBtn.disabled = true;
+  document.getElementById('progressWrap').classList.add('visible');
+  document.getElementById('dlBtn').classList.remove('visible');
+  document.getElementById('logBody').innerHTML = '';
+  document.getElementById('logPanel').classList.add('visible');
+  document.getElementById('logCount').textContent = 'MAX MODE...';
+
+  const fmt = document.getElementById('output_format').value;
+  const fd = new FormData();
+  fd.append('file', state.file);
+  fd.append('mode', 'max');
+  fd.append('output_format', fmt);
+
+  addLog(`[MAX] Target: ${state.file.name} (${formatSize(state.file.size)})`, 'warn');
+  addLog('[MAX] Running full journalist-grade pipeline...', 'warn');
+
+  try {
+    const resp = await fetch(`${API}/sanitize`, { method: 'POST', body: fd });
+
+    if (!resp.ok) {
+      try {
+        const err = await resp.json();
+        addLog(`Error: ${err.error || resp.statusText}`, 'warn');
+      } catch {
+        addLog(`Error: HTTP ${resp.status}`, 'warn');
+      }
+      document.getElementById('logCount').textContent = 'Failed';
+      return;
+    }
+
+    const ct = resp.headers.get('Content-Type') || '';
+    if (!ct.startsWith('image/')) {
+      const body = await resp.text();
+      addLog(`Unexpected response (${ct}): ${body.slice(0, 120)}`, 'warn');
+      return;
+    }
+
+    const { decodeURIComponent: dec } = window;
+    const steps = dec(resp.headers.get('X-Steps-Done') || '');
+    const count = resp.headers.get('X-Steps-Count') || '?';
+
+    if (steps) steps.split(',').forEach(s => { if (s.trim()) addLog(s.trim(), 'ok'); });
+
+    const blob = await resp.blob();
+    state.outputBlob = blob;
+    const url = URL.createObjectURL(blob);
+    document.getElementById('previewAfter').src = url;
+
+    const reduction = (((state.file.size - blob.size) / state.file.size) * 100).toFixed(1);
+    addLog(`Output: ${formatSize(blob.size)} (${Number(reduction) > 0 ? '-' : '+'}${Math.abs(Number(reduction))}%)`, 'info');
+    document.getElementById('logCount').textContent = `MAX: ${count} steps done`;
+    document.getElementById('dlBtn').classList.add('visible');
+
+    document.getElementById('downloadBtn').onclick = () => {
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `MAX_sanitized_${Date.now()}.${fmt}`;
+      a.click();
+    };
+
+  } catch (e) {
+    addLog(`Network error: ${e.message}`, 'warn');
+    document.getElementById('logCount').textContent = 'Failed';
+  } finally {
+    btn.disabled = false;
+    runBtn.disabled = false;
+    document.getElementById('progressWrap').classList.remove('visible');
+  }
+}
+
+function addLog(msg, type='info') {
+  const t = new Date().toLocaleTimeString('zh-CN', {hour12:false});
+  const line = document.createElement('div');
+  line.className = 'log-line';
+  line.innerHTML = `<span class="log-time">${t}</span><span class="log-${type}">${msg}</span>`;
+  const body = document.getElementById('logBody');
+  body.appendChild(line);
+  body.scrollTop = body.scrollHeight;
+}
+
+function formatSize(b) {
+  if (b < 1024) return b + ' B';
+  if (b < 1024*1024) return (b/1024).toFixed(1) + ' KB';
+  return (b/1024/1024).toFixed(2) + ' MB';
+}
+</script>
+
+<!-- ANALYZE TAB -->
+<div id="tab-analyze" class="analyze-panel" style="display:none">
+
+  <div class="an-col an-controls">
+    <div class="section-label" style="border-top:none;margin-top:0;padding-top:0">ORIGINAL IMAGE</div>
+    <div class="drop-zone an-drop" id="anDropOrig" onclick="document.getElementById('anInputOrig').click()"
+      ondragover="anDragOver(event,'anDropOrig')" ondragleave="anDragLeave('anDropOrig')" ondrop="anDrop(event,'orig')">
+      <div class="drop-icon">⬡</div>
+      <div class="drop-text" style="font-size:0.9rem">Drop original image</div>
+    </div>
+    <input type="file" id="anInputOrig" accept="image/*" onchange="anSelect(this.files[0],'orig')">
+    <div class="file-badge" id="anBadgeOrig" style="margin:0.5rem 0 0"><span class="badge-name" id="anNameOrig"></span><span class="badge-size" id="anSizeOrig"></span></div>
+
+    <div class="section-label">SANITIZED IMAGE</div>
+    <div class="drop-zone an-drop" id="anDropSan" onclick="document.getElementById('anInputSan').click()"
+      ondragover="anDragOver(event,'anDropSan')" ondragleave="anDragLeave('anDropSan')" ondrop="anDrop(event,'san')">
+      <div class="drop-icon">⬡</div>
+      <div class="drop-text" style="font-size:0.9rem">Drop sanitized image</div>
+    </div>
+    <input type="file" id="anInputSan" accept="image/*" onchange="anSelect(this.files[0],'san')">
+    <div class="file-badge" id="anBadgeSan" style="margin:0.5rem 0 0"><span class="badge-name" id="anNameSan"></span><span class="badge-size" id="anSizeSan"></span></div>
+
+    <div class="run-btn" style="padding-top:1.5rem">
+      <button class="primary" id="anRunBtn" onclick="runAnalyze()" disabled><span>▶ RUN ANALYSIS</span></button>
+    </div>
+  </div>
+
+  <div class="an-col an-results" id="anResults">
+    <div class="an-placeholder">
+      <div style="font-size:2rem;opacity:0.2">◈</div>
+      <div style="font-size:0.8rem;color:var(--text-dim);margin-top:0.5rem;letter-spacing:0.1em">Upload both images and run analysis</div>
+    </div>
+  </div>
+
+</div>
+
+</body>
+</html>
