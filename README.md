@@ -23,7 +23,7 @@ docker compose up -d --build
 ## 架构
 
 ```
-browser → nginx(:8080) → /api/* → Flask(:5000)
+browser → caddy(:8080) → /api/* → Flask(:5000)
                        ↓
                   index.html
 ```
