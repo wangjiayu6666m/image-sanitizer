@@ -4,6 +4,8 @@ title SANITIZE - Manager
 
 set "PROJECT_DIR=%~dp0"
 set "APP_PORT=8080"
+set "COMPOSE_FILE=docker-compose.local.yml"
+rem For Linux production, use: docker compose -f docker-compose.yml
 
 :menu
 cls
@@ -13,7 +15,7 @@ echo   SANITIZE // Service Manager
 echo  ================================================
 echo.
 
-docker compose -f "%PROJECT_DIR%docker-compose.yml" ps --format "{{.Name}} {{.Status}}" 2>nul | find "running" >nul 2>&1
+docker compose -f "%PROJECT_DIR%%COMPOSE_FILE%" ps --format "{{.Name}} {{.Status}}" 2>nul | find "running" >nul 2>&1
 if %errorlevel% equ 0 (
     echo   Status : RUNNING - http://localhost:%APP_PORT%
 ) else (
@@ -45,19 +47,19 @@ if "!CHOICE!"=="0" exit /b 0
 goto :menu
 
 :start
-cd /d "%PROJECT_DIR%" && docker compose up -d
+cd /d "%PROJECT_DIR%" && docker compose -f "%COMPOSE_FILE%" up -d
 pause & goto :menu
 
 :stop
-cd /d "%PROJECT_DIR%" && docker compose down
+cd /d "%PROJECT_DIR%" && docker compose -f "%COMPOSE_FILE%" down
 pause & goto :menu
 
 :restart
-cd /d "%PROJECT_DIR%" && docker compose restart
+cd /d "%PROJECT_DIR%" && docker compose -f "%COMPOSE_FILE%" restart
 pause & goto :menu
 
 :logs
-cd /d "%PROJECT_DIR%" && docker compose logs -f
+cd /d "%PROJECT_DIR%" && docker compose -f "%COMPOSE_FILE%" logs -f
 pause & goto :menu
 
 :browser
@@ -70,9 +72,9 @@ pause & goto :menu
 
 :rebuild
 cd /d "%PROJECT_DIR%"
-docker compose down
-docker compose build --no-cache
-docker compose up -d
+docker compose -f "%COMPOSE_FILE%" down
+docker compose -f "%COMPOSE_FILE%" build --no-cache
+docker compose -f "%COMPOSE_FILE%" up -d
 pause & goto :menu
 
 :uninstall
@@ -83,6 +85,6 @@ echo.
 set /p "CONFIRM=  Type YES to confirm: "
 if not "!CONFIRM!"=="YES" ( echo Cancelled. & pause & goto :menu )
 cd /d "%PROJECT_DIR%"
-docker compose down --rmi all --volumes --remove-orphans
+docker compose -f "%COMPOSE_FILE%" down --rmi all --volumes --remove-orphans
 echo Done.
 pause & goto :menu

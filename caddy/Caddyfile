@@ -1,0 +1,31 @@
+# 把 your.domain.com 替换成你的域名
+# 如果只用 IP 访问，把这行改成 :8080
+your.domain.com {
+
+    # 静态前端
+    root * /srv/www
+    file_server
+
+    # API 反代到 Flask backend
+    handle /api/* {
+        uri strip_prefix /api
+        reverse_proxy backend:5000 {
+            header_up Host {host}
+            header_up X-Real-IP {remote_host}
+            transport http {
+                response_header_timeout 120s
+            }
+        }
+    }
+
+    # 请求体大小限制 25MB
+    request_body {
+        max_size 25MB
+    }
+
+    # 日志
+    log {
+        output file /var/log/caddy/access.log
+        format json
+    }
+}
